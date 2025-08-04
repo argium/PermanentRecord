@@ -1,0 +1,16 @@
+## Interface: 110107
+## Title: Permanent Record
+## Notes: Permanent Record
+## Author: Argi
+## Version: 0.0.1
+## RequiredDeps:
+## X-Curse-Project-ID:
+## SavedVariables:
+## SavedVariablesPerCharacter:
+
+libs\LibStub\LibStub.lua
+libs\AceAddon-3.0\AceAddon-3.0.lua
+libs\AceConfig-3.0\AceConfig-3.0.lua
+libs\AceConsole-3.0\AceConsole-3.0.lua
+libs\AceEvent-3.0\AceEvent-3.0.lua
+PermanentRecord.lua
