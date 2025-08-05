@@ -1,26 +1,25 @@
-PermanentRecord = LibStub("AceAddon-3.0"):NewAddon("PermanentRecord", "AceConsole-3.0", "AceEvent-3.0")
+local addonName = ...
+PermanentRecord = LibStub("AceAddon-3.0"):NewAddon(addonName, "AceConsole-3.0", "AceEvent-3.0")
 
--- local options = {
---     name = "PermanentRecord",
---     handler = PermanentRecord,
---     type = 'group',
---     args = {
---         msg = {
---             type = 'input',
---             name = 'My Message',
---             desc = 'The message for my addon',
---             set = 'SetMyMessage',
---             get = 'GetMyMessage',
---         },
---         records = {
+local comment = {
+  datetime = "",
+  zone = "",
+  text = "",
+}
 
---         }
---     },
--- }
+local record = {
+  playerId = "", -- player name
+  flag = 0,      -- flag color
+  comments = {}, -- list of comments
+  fingerprint = "" -- computed finger for the battle.net account
+}
+
 local defaults = {
-    profile = {
-        records = {}
-    },
+  profile = {
+    debug = true, -- enable debug output
+    loaded = addonName,
+    records = {},
+  },
 }
 
 -- playerId
@@ -30,55 +29,51 @@ FLAG_RED = 1
 FLAG_YELLOW = 2
 FLAG_GREEN = 3
 
+function PR_LOG_INFO(...)
+  if PermanentRecord.db.profile.debug then
+    print("[PermanentRecord]", ...)
+  end
+end
+
+function PR_LOG_WARN(...)
+  if PermanentRecord.db.profile.debug then
+    print("[PermanentRecord]", ...)
+  end
+end
+
+function PR_LOG_ERROR(...)
+  if PermanentRecord.db.profile.debug then
+    print("[PermanentRecord]", ...)
+  end
+end
 
 function PermanentRecord:OnInitialize()
-  self.db = LibStub("AceDB-3.0"):New("PermanentRecordDb", defaults, true)
-  -- options.args.profile = LibStub("AceDBOptions-3.0"):GetOptionsTable(self.db)
-  print("PermanentRecord loaded with", #self.db.profile.records, "records.")
+  self.db = LibStub("AceDB-3.0"):New(addonName.."DB", defaults, true)
+  self.core = PermanentRecord.Core:New(self.db)
+  PermanentRecord:RegisterChatCommand("pr", "HandleSlashCmd")
+end
+
+function PermanentRecord:HandleSlashCmd(input)
+  return PermanentRecord.Cmd:Dispatch(self.core, input)
 end
 
 function PermanentRecord:HandleGroupEvent(event, ...)
-  print(event)
+  PR_LOG_INFO(event)
   C_Timer.After(2, function()
     if event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_ENTERING_WORLD" then
-      for i=1,GetNumGroupMembers() do
-        local name = GetRaidRosterInfo(i)
-        if PermanentRecord:GetRecord(name) then
-          print("I have seen this player before:", name)
-        elseif name ~= UnitName("player") then
-          PermanentRecord:AddRecord(name, FLAG_YELLOW)
-          print("Adding new record for player:", name)
-        end
-      end
+      self.core:ProcessGroupRoster()
     elseif event == "GROUP_JOINED" then
-      print("Group joined")
+      PR_LOG_INFO("Group joined")
     elseif event == "GROUP_LEFT" then
-      print("Group left")
+      PR_LOG_INFO("Group left")
     end
   end)
 end
+
 PermanentRecord:RegisterEvent("GROUP_ROSTER_UPDATE", "HandleGroupEvent")
 PermanentRecord:RegisterEvent("GROUP_JOINED", "HandleGroupEvent")
 PermanentRecord:RegisterEvent("GROUP_LEFT", "HandleGroupEvent")
 PermanentRecord:RegisterEvent("PLAYER_ENTERING_WORLD", "HandleGroupEvent")
-
-function PermanentRecord:AddRecord(name, flag)
-  -- TODO: name doesn't include the home realm so the addon won't work across realms
-  if self.db.profile.records[name] then
-    print("Error: Player ID already exists in records")
-    return
-  end
-  local record = {
-    playerId = name,
-    flag = flag,
-    history = {}
-  }
-  self.db.profile.records[name] = record
-end
-
-function PermanentRecord:GetRecord(name)
-  return self.db.profile.records[name]
-end
 
 
 -- function PR_IterateRoster(maxGroup,index)
