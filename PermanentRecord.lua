@@ -25,9 +25,7 @@ local defaults = {
 -- playerId
 -- flag
 -- history
-FLAG_RED = 1
-FLAG_YELLOW = 2
-FLAG_GREEN = 3
+
 
 function PR_LOG_INFO(...)
   if PermanentRecord.db.profile.debug then
@@ -53,10 +51,6 @@ function PermanentRecord:OnInitialize()
   PermanentRecord:RegisterChatCommand("pr", "HandleSlashCmd")
 end
 
-function PermanentRecord:HandleSlashCmd(input)
-  return PermanentRecord.Cmd:Dispatch(self.core, input)
-end
-
 function PermanentRecord:HandleGroupEvent(event, ...)
   PR_LOG_INFO(event)
   C_Timer.After(2, function()
@@ -74,6 +68,57 @@ PermanentRecord:RegisterEvent("GROUP_ROSTER_UPDATE", "HandleGroupEvent")
 PermanentRecord:RegisterEvent("GROUP_JOINED", "HandleGroupEvent")
 PermanentRecord:RegisterEvent("GROUP_LEFT", "HandleGroupEvent")
 PermanentRecord:RegisterEvent("PLAYER_ENTERING_WORLD", "HandleGroupEvent")
+
+function PermanentRecord:HandleSlashCmd(input)
+  local parts = strsplittable(' ', input)
+  local command = parts[1] or ""
+  print("Input", input)
+  print("Command '".. command .."'")
+  print("parts2 '".. parts[2] .."'")
+
+  if command == "get" then
+    self:SlashGet(parts[2] or "")
+  elseif command == "add" then
+    self:SlashAdd(parts[2] or "")
+  elseif command == "debug" then
+    self.db.profile.debug = not self.db.profile.debug
+  elseif command == "help" or command == "" then
+    print("Available commands:")
+    print("  pr get <player> - Get the record for a player")
+    print("  pr add <player> [flag] - Add a player with an optional flag (default is yellow)")
+    print("  pr help - Show this help message")
+  else
+    print("Unknown command. Type 'pr help' for available commands.")
+  end
+end
+
+function PermanentRecord:SlashGet(value)
+  local record = self.core:GetRecord(value)
+  if record then
+    print("Record for", value, "exists with flag:", record.flag)
+  else
+    print("No record found for", value)
+  end
+end
+
+function PermanentRecord:SlashAdd(player, flag)
+  flag = flag or PermanentRecord.Core.FLAG.Yellow
+  if player == "" then
+    print("Please provide a player name.")
+    return
+  end
+  self.core:AddRecord(player, flag)
+end
+
+function PermanentRecord:SlashRemove(player)
+  local result = self.core:RemoveRecord(player)
+  if result then
+    print("Removed record for", player)
+  else
+    print("No record found for", player)
+  end
+end
+
 
 
 -- function PR_IterateRoster(maxGroup,index)
