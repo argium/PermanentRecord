@@ -14,4 +14,3 @@ libs\AceConsole-3.0\AceConsole-3.0.lua
 libs\AceDB-3.0\AceDB-3.0.lua
 libs\AceEvent-3.0\AceEvent-3.0.lua
 PermanentRecord.lua
-Core.lua

@@ -61,10 +61,6 @@ end
 function PermanentRecord:HandleGroupEvent(event, ...)
   self:PR_LOG_TRACE(event)
   C_Timer.After(2, function()
-    if PermanentRecord.Core == nil then
-      self:PR_LOG_ERROR("Core is not initialized, cannot handle group event:", event)
-      return
-    end
     if event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_ENTERING_WORLD" then
       self:ProcessGroupRoster()
     elseif event == "GROUP_JOINED" then
@@ -128,7 +124,17 @@ function PermanentRecord:SlashGet(args)
   end
 
   if type == "p" or type == "player" then
-    self:GetPlayer(value)
+    local player = self:GetPlayer(value)
+    if player then
+      print("Player ID:", player.playerId)
+      print("Flag:", player.flag)
+      print("Comments:")
+      for _, comment in ipairs(player.comments) do
+        print("  -", comment.text, "at", comment.datetime, "in zone", comment.zone)
+      end
+    else
+      self:PR_LOG_ERROR("No record found for player:", value)
+    end
   elseif type == "g" or type == "guild" then
     self:GetGuild(value)
   end
@@ -137,7 +143,7 @@ end
 function PermanentRecord:SlashAdd(args, flag)
   local type = args[2] and args[2]:lower() or ""
   local value = args[3]
-  flag = flag or PermanentRecord.Core.FLAG.Yellow
+  flag = flag or FLAG.Yellow
 
   if not type or type == "" then
     self:PR_LOG_ERROR("Please specify 'p' for player or 'g' for guild.")
