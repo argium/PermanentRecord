@@ -144,7 +144,7 @@ function PermanentRecord.Core:ProcessGroupRoster(onJoin)
             if normName and normName ~= selfNameRealm then
               currentRoster[normName] = true
 
-              local rec, added = self:AddPlayer(normName)
+              local rec, added = self:AddPlayer(normName, unit)
               -- Announce if appropriate
               local lastSeenTs = nil
               if rec and type(rec.sightings) == "table" and #rec.sightings > 0 then
@@ -161,9 +161,14 @@ function PermanentRecord.Core:ProcessGroupRoster(onJoin)
                 self:AnnounceSeen(normName, lastSeenTs)
               end
 
-              -- Record a sighting once per group session
+              -- Record a sighting once per group session (include guild name)
               if rec and not self._seenThisGroup[normName] then
-                rec:AddSighting(now(), currentZone)
+                local guildName = ""
+                if GetGuildInfo then
+                  local gName = GetGuildInfo(unit)
+                  if gName then guildName = gName end
+                end
+                rec:AddSighting(now(), currentZone, guildName)
                 self._seenThisGroup[normName] = self._groupSessionId
               end
             end
@@ -186,9 +191,10 @@ function PermanentRecord.Core:OnGroupLeft()
 end
 
 ---@param name string Player name, assumed to be the player's realm if not provided.
+---@param unit string|nil Optional unit token to populate class/spec
 ---@return Player|nil player The Player instance if added or already exists, or nil if invalid name
 ---@return boolean added True if player was added, false if already exists or invalid
-function PermanentRecord.Core:AddPlayer(name)
+function PermanentRecord.Core:AddPlayer(name, unit)
   if not name or name == "" then
     return nil, false
   end
@@ -198,9 +204,15 @@ function PermanentRecord.Core:AddPlayer(name)
   end
   local existing = self.db.profile.players[name]
   if existing ~= nil then
+    if unit and existing.UpdateFromUnit then
+      existing:UpdateFromUnit(unit)
+    end
     return existing, false
   end
   local player = PermanentRecord.Player:New(name, "")
+  if unit and player.UpdateFromUnit then
+    player:UpdateFromUnit(unit)
+  end
   self.db.profile.players[name] = player
   return player, true
 end

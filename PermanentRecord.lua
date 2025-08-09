@@ -60,7 +60,7 @@ end
 PermanentRecord:RegisterEvent("GROUP_ROSTER_UPDATE", "HandleGroupEvent")
 PermanentRecord:RegisterEvent("GROUP_JOINED", "HandleGroupEvent")
 PermanentRecord:RegisterEvent("GROUP_LEFT", "HandleGroupEvent")
-PermanentRecord:RegisterEvent("PLAYER_ENTERING_WORLD", "HandleGroupEvent")
+-- PermanentRecord:RegisterEvent("PLAYER_ENTERING_WORLD", "HandleGroupEvent")
 
 local function fmtDate(ts)
   if not ts or ts == 0 then return "" end
