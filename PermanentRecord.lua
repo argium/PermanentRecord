@@ -47,10 +47,10 @@ function PermanentRecord:HandleGroupEvent(event, ...)
   self:DebugLog(event)
   C_Timer.After(2, function()
     if event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_ENTERING_WORLD" then
-      self.core:ProcessGroupRoster()
+      PermanentRecord.Core.ProcessGroupRoster(self.core)
     elseif event == "GROUP_JOINED" then
       self:DebugLog("Group joined")
-      self.core:ProcessGroupRoster(true) -- flag that this is on join
+      PermanentRecord.Core.ProcessGroupRoster(self.core, true) -- flag that this is on join
     elseif event == "GROUP_LEFT" then
       self:DebugLog("Group left")
     end
@@ -91,40 +91,47 @@ local function coreCall(self, kind, action, ...)
   return core[m](core, ...)
 end
 
+-- Robust parser for "command type value with spaces". Always returns 3 strings.
+local function parseSlash(input)
+  input = tostring(input or "")
+  local cmd, typ, rest = input:match("^%s*(%S+)%s*(%S*)%s*(.-)%s*$")
+  return { cmd or "", typ or "", rest or "" }
+end
+
 function PermanentRecord:HandleSlashCmd(input)
-  local args = strsplittable(' ', input)
+  local args = parseSlash(input)
   local command = args[1] or ""
 
   if (command == "get" or command == "g") then
-    if #args == 3 then
+    if (args[2] ~= "" and args[3] ~= "") then
       self:SlashGet(args)
     else
       self:Error("Usage: pr get <player|guild> <name>")
     end
     return
   elseif (command == "add" or command == "a") then
-    if #args == 3 then
+    if (args[2] ~= "" and args[3] ~= "") then
       self:SlashAdd(args)
     else
       self:Error("Usage: pr add <player|guild> <name>")
     end
     return
   elseif (command == "remove" or command == "rm") then
-    if #args == 3 then
+    if (args[2] ~= "" and args[3] ~= "") then
       self:SlashRemove(args)
     else
       self:Error("Usage: pr remove <player|guild> <name>")
     end
     return
   elseif (command == "list" or command == "ls") then
-    if #args >= 2 then
+    if (args[2] ~= "") then
       self:SlashList(args)
     else
       self:Error("Usage: pr list <player|guild>")
     end
     return
   elseif (command == "clear" or command == "cl") then
-    if #args >= 2 then
+    if (args[2] ~= "") then
       self:SlashClear(args)
     else
       self:Error("Usage: pr clear <player|guild>")
@@ -156,7 +163,7 @@ end
 function PermanentRecord:SlashGet(args)
   local kind = normalizeType(args[2])
   local value = args[3]
-  if not kind then
+  if not kind or value == "" then
     self:Error("Usage: pr get <player|guild> <name>")
     return
   end
@@ -185,8 +192,12 @@ function PermanentRecord:SlashGet(args)
     if result.playerId then
       local sightings = type(result.sightings) == "table" and result.sightings or {}
       print("  Sightings:", #sightings)
-      for i, ts in ipairs(sightings) do
-        print("    -", fmtDate(ts))
+      for i, s in ipairs(sightings) do
+        if type(s) == "table" then
+          print("    -", fmtDate(s.ts), s.zone or "")
+        else
+          print("    -", fmtDate(s))
+        end
       end
     end
   else
@@ -197,7 +208,7 @@ end
 function PermanentRecord:SlashAdd(args)
   local kind = normalizeType(args[2])
   local value = args[3]
-  if not kind then
+  if not kind or value == "" then
     self:Error("Usage: pr add <player|guild> <name>")
     return
   end
@@ -218,7 +229,7 @@ end
 function PermanentRecord:SlashRemove(args)
   local kind = normalizeType(args[2])
   local value = args[3]
-  if not kind then
+  if not kind or value == "" then
     self:Error("Usage: pr remove <player|guild> <name>")
     return
   end
@@ -241,7 +252,7 @@ function PermanentRecord:SlashList(args)
 
   local names = coreCall(self, kind, "list") or {}
   local label = (kind == "player") and "Players" or "Guilds"
-  print(label.." ("..#names.."): ")
+  print(label.." ("..#names.."):")
   for _, n in ipairs(names) do print("  -", n) end
 end
 

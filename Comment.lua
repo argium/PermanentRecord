@@ -14,9 +14,10 @@ Comment.__index = Comment
 ---@return Comment
 function Comment:New(datetime, zone, text)
   local self = setmetatable({}, Comment)
-  self.datetime = datetime or ""
-  self.zone = zone or ""
-  self.text = text or ""
+  local trim = _G.strtrim or function(s) return (s or ""):gsub("^%s+", ""):gsub("%s+$", "") end
+  self.datetime = trim(tostring(datetime or ""))
+  self.zone = trim(tostring(zone or ""))
+  self.text = trim(tostring(text or ""))
   return self
 end
 

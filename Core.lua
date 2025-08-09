@@ -1,6 +1,11 @@
 local AddonName, _ = ...
 PermanentRecord.Core = {}
 
+-- Unified time helper
+local function now()
+  return (GetServerTime and GetServerTime() or time())
+end
+
 function PermanentRecord.Core:DebugLog(...)
   if self.debug then
     print("[PR_TRACE]", ...)
@@ -26,19 +31,27 @@ function PermanentRecord.Core:New(db, debug)
   for name, rec in pairs(self.db.profile.players) do
     if type(rec) ~= "table" then
       -- Convert primitive to structured record
-      self.db.profile.players[name] = PermanentRecord.Player:New(name)
+      self.db.profile.players[name] = PermanentRecord.Player:New(name, "")
     else
       if type(rec.comments) ~= "table" then rec.comments = {} end
       if not rec.playerId or rec.playerId == "" then rec.playerId = name end
       if rec.fingerprint == nil then rec.fingerprint = "" end
-      if rec.createdAt == nil then rec.createdAt = (GetServerTime and GetServerTime() or time()) end
+      if rec.createdAt == nil then rec.createdAt = now() end
       if type(rec.sightings) ~= "table" then rec.sightings = {} end
-      -- trim sightings to last 5 and ensure numeric
+      -- normalize sightings to tables { ts=number, zone=string } and trim to last 5
       local cleaned = {}
-      for _, ts in ipairs(rec.sightings) do
-        if type(ts) == "number" then table.insert(cleaned, ts) end
+      for _, s in ipairs(rec.sightings) do
+        if type(s) == "number" then
+          table.insert(cleaned, { ts = s, zone = "" })
+        elseif type(s) == "table" then
+          local ts = tonumber(s.ts) or 0
+          if ts > 0 then
+            local zone = type(s.zone) == "string" and s.zone or ""
+            table.insert(cleaned, { ts = ts, zone = zone })
+          end
+        end
       end
-      -- keep only last 5
+      -- keep only last 5, preserving order
       local keepFrom = math.max(1, #cleaned - 4)
       rec.sightings = {}
       for i = keepFrom, #cleaned do table.insert(rec.sightings, cleaned[i]) end
@@ -53,7 +66,7 @@ function PermanentRecord.Core:New(db, debug)
     else
       if type(rec.comments) ~= "table" then rec.comments = {} end
       if not rec.guildId or rec.guildId == "" then rec.guildId = name end
-      if rec.createdAt == nil then rec.createdAt = (GetServerTime and GetServerTime() or time()) end
+      if rec.createdAt == nil then rec.createdAt = now() end
     end
   end
 
@@ -146,6 +159,7 @@ function PermanentRecord.Core:ProcessGroupRoster(onJoin)
       local currentRoster = {}
 
       local selfNameRealm = GetNormalisedNameAndRealm(GetUnitName("player", true))
+      local currentZone = (GetRealZoneText and GetRealZoneText()) or ""
       for i = 1, GetNumGroupMembers() do
         local unit = prefix..i
         local playerNameRealm = GetUnitName(unit, true)
@@ -158,7 +172,12 @@ function PermanentRecord.Core:ProcessGroupRoster(onJoin)
             -- Announce if appropriate
             local lastSeenTs = nil
             if rec and type(rec.sightings) == "table" and #rec.sightings > 0 then
-              lastSeenTs = rec.sightings[#rec.sightings]
+              local last = rec.sightings[#rec.sightings]
+              if type(last) == "table" then
+                lastSeenTs = tonumber(last.ts) or nil
+              else
+                lastSeenTs = tonumber(last) or nil
+              end
             end
 
             local isNewToRoster = onJoin or (self._lastRoster and not self._lastRoster[normName])
@@ -168,7 +187,7 @@ function PermanentRecord.Core:ProcessGroupRoster(onJoin)
 
             -- Record a sighting once per group session
             if rec and not self._seenThisGroup[normName] then
-              rec:AddSighting(GetServerTime and GetServerTime() or time())
+              rec:AddSighting(now(), currentZone)
               self._seenThisGroup[normName] = self._groupSessionId
             end
           end
@@ -193,7 +212,6 @@ end
 ---@return Player|nil player The Player instance if added or already exists, or nil if invalid name
 ---@return boolean added True if player was added, false if already exists or invalid
 function PermanentRecord.Core:AddPlayer(name)
-  -- TODO: name doesn't include the home realm so the addon won't work across realms
   if not name or name == "" then
     return nil, false
   end
@@ -202,10 +220,10 @@ function PermanentRecord.Core:AddPlayer(name)
     return nil, false
   end
   local existing = self.db.profile.players[name]
-  if existing then
+  if existing ~= nil then
     return existing, false
   end
-  local player = PermanentRecord.Player:New(name)
+  local player = PermanentRecord.Player:New(name, "")
   self.db.profile.players[name] = player
   return player, true
 end
@@ -228,8 +246,9 @@ function PermanentRecord.Core:RemovePlayer(name)
     return false
   end
   name = GetNormalisedNameAndRealm(name)
-  if self.db.profile.players[name] then
-    self.db.profile.players[name] = nil
+  local players = self.db and self.db.profile and self.db.profile.players
+  if type(players) == "table" and players[name] ~= nil then
+    rawset(players, name, nil)
     self:DebugLog("Removed record for player:", name)
     return true
   else
