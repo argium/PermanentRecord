@@ -1,24 +1,80 @@
-local addonName = ...
-PermanentRecord = LibStub("AceAddon-3.0"):NewAddon(addonName, "AceConsole-3.0", "AceEvent-3.0")
+local AddonName, _ = ...
+PermanentRecord = LibStub("AceAddon-3.0"):NewAddon("PermanentRecord", "AceConsole-3.0", "AceEvent-3.0")
 
-local comment = {
-  datetime = "",
-  zone = "",
-  text = "",
-}
+--- Represents a comment on a player or guild.
+---@class Comment
+---@field datetime string The date and time of the comment.
+---@field zone string The zone where the comment was made.
+---@field text string The comment text.
+local Comment = {}
+Comment.__index = Comment
 
-local player = {
-  playerId = "",   -- player name
-  flag = 0,        -- flag color
-  comments = {},   -- list of comments
-  fingerprint = "" -- computed finger for the battle.net account
-}
+---Create a new Comment.
+---@param datetime string
+---@param zone string
+---@param text string
+---@return Comment
+function Comment:New(datetime, zone, text)
+  local self = setmetatable({}, Comment)
+  self.datetime = datetime or ""
+  self.zone = zone or ""
+  self.text = text or ""
+  return self
+end
 
-local guild = {
-  guildId = "",  -- guild name
-  flag = 0,      -- flag color
-  comments = {}, -- list of comments
-}
+--- Represents a player record.
+---@class Player
+---@field playerId string The player's name.
+---@field comments Comment[] List of comments.
+---@field fingerprint string Computed fingerprint for the battle.net account.
+local Player = {}
+Player.__index = Player
+
+---Create a new Player.
+---@param playerId string
+---@param fingerprint string
+---@return Player
+function Player:New(playerId, fingerprint)
+  local self = setmetatable({}, Player)
+  self.playerId = playerId or ""
+  self.comments = {}
+  self.fingerprint = fingerprint or ""
+  return self
+end
+
+---Add a comment to the player.
+---@param comment Comment
+function Player:AddComment(comment)
+  table.insert(self.comments, comment)
+end
+
+--- Represents a guild record.
+---@class Guild
+---@field guildId string The guild's name.
+---@field comments Comment[] List of comments.
+local Guild = {}
+Guild.__index = Guild
+
+---Create a new Guild.
+---@param guildId string
+---@return Guild
+function Guild:New(guildId)
+  local self = setmetatable({}, Guild)
+  self.guildId = guildId or ""
+  self.comments = {}
+  return self
+end
+
+---Add a comment to the guild.
+---@param comment Comment
+function Guild:AddComment(comment)
+  table.insert(self.comments, comment)
+end
+
+-- Export classes for use by other modules
+PermanentRecord.Player = Player
+PermanentRecord.Guild = Guild
+PermanentRecord.Comment = Comment
 
 local defaults = {
   profile = {
@@ -28,47 +84,44 @@ local defaults = {
   },
 }
 
+-- Utility: count keys in a map-like table
+local function CountMapKeys(t)
+  local c = 0
+  if t then for _ in pairs(t) do c = c + 1 end end
+  return c
+end
+
 -- playerId
--- flag
 -- history
+-- sightings
+-- message history
 
-
-function PR_LOG_TRACE(...)
-  if PermanentRecord.db.profile.debug then
-    print("[PermanentRecord]", ...)
+function PermanentRecord:DebugLog(...)
+  if self.db.profile.debug then
+    print("["..AddonName.."]", ...)
   end
 end
 
-function PR_LOG_WARN(...)
-  if PermanentRecord.db.profile.debug then
-    print("[PermanentRecord]", ...)
-  end
+function PermanentRecord:Error(...)
+  print("|cffaa0000["..AddonName.."]", ...)
 end
 
-function PR_LOG_ERROR(...)
-  print("[PermanentRecord]", ...)
-end
-
-function PermanentRecord:OnEnable()
-  self.db = LibStub("AceDB-3.0"):New(addonName .. "DB", defaults, true)
+function PermanentRecord:OnInitialize()
+  self.db = LibStub("AceDB-3.0"):New(AddonName.."DB", defaults, true)
   self.core = PermanentRecord.Core:New(self.db)
   PermanentRecord:RegisterChatCommand("pr", "HandleSlashCmd")
-  PR_LOG_TRACE("PermanentRecord enabled")
+  self:DebugLog(AddonName.." enabled")
 end
 
 function PermanentRecord:HandleGroupEvent(event, ...)
-  PR_LOG_TRACE(event)
+  self:DebugLog(event)
   C_Timer.After(2, function()
-    if self.core == nil then
-      PR_LOG_ERROR("Core is not initialized, cannot handle group event:", event)
-      return
-    end
     if event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_ENTERING_WORLD" then
       self.core:ProcessGroupRoster()
     elseif event == "GROUP_JOINED" then
-      PR_LOG_TRACE("Group joined")
+      self:DebugLog("Group joined")
     elseif event == "GROUP_LEFT" then
-      PR_LOG_TRACE("Group left")
+      self:DebugLog("Group left")
     end
   end)
 end
@@ -83,13 +136,13 @@ function PermanentRecord:HandleSlashCmd(input)
   local command = args[1] or ""
 
   if #args == 3 then
-    if command == "get" then
+    if command == "get" or command == "g" then
       self:SlashGet(args)
       return
-    elseif command == "add" then
+    elseif command == "add" or command == "a" then
       self:SlashAdd(args)
       return
-    elseif command == "remove" then
+    elseif command == "remove" or command == "rm" then
       self:SlashRemove(args)
       return
     end
@@ -101,14 +154,12 @@ function PermanentRecord:HandleSlashCmd(input)
     print("PermanentRecord status:")
     print("  Profile:", self.db.keys.profile)
     print("  Debug mode:", self.db.profile.debug and "enabled" or "disabled")
-    print("  Loaded players:", #self.db.profile.players)
-    print("  Loaded guilds:", #self.db.profile.guilds)
     return
   end
 
   print("Available commands:")
   print("  pr get <player> - Get the record for a player")
-  print("  pr add <player> [flag] - Add a player with an optional flag (default is yellow)")
+  print("  pr add <player> - Add a player ")
   print("  pr help - Show this help message")
 end
 
@@ -116,110 +167,72 @@ function PermanentRecord:SlashGet(args)
   local type = args[2] and args[2]:lower() or ""
   local value = args[3]
 
-  if not type or type == "" then
-    PR_LOG_ERROR("Please specify 'p' for player or 'g' for guild.")
-    return
-  end
-  if not value or value == "" then
-    PR_LOG_ERROR("Please provide a name.")
-    return
+  local result = nil
+  if type == "p" or type == "player" then
+    result = self.core:GetPlayer(value)
+  elseif type == "g" or type == "guild" then
+    result = self.core:GetGuild(value)
   end
 
-  if type == "p" or type == "player" then
-    self.core:GetPlayer(value)
-  elseif type == "g" or type == "guild" then
-    self.core:GetGuild(value)
+  if result then
+    print("Record found:")
+    print("  Type:", result.playerId and "Player" or "Guild")
+    print("  ID:", result.playerId or result.guildId)
+    if result.playerId and result.fingerprint and result.fingerprint ~= "" then
+      print("  Fingerprint:", result.fingerprint)
+    end
+    print("  Comments:", #result.comments)
+    for _, comment in ipairs(result.comments) do
+      print("    -", comment.datetime, comment.zone, comment.text)
+    end
+    local pc = CountMapKeys(self.db.profile.players)
+    local gc = CountMapKeys(self.db.profile.guilds)
+    print("Totals:", "players="..pc..", guilds="..gc)
+  else
+    self:Error("No record found for", type, value)
   end
 end
 
-function PermanentRecord:SlashAdd(args, flag)
+function PermanentRecord:SlashAdd(args)
   local type = args[2] and args[2]:lower() or ""
   local value = args[3]
-  flag = flag or PermanentRecord.Core.FLAG.Yellow
-
-  if not type or type == "" then
-    PR_LOG_ERROR("Please specify 'p' for player or 'g' for guild.")
-    return
-  end
-  if not value or value == "" then
-    PR_LOG_ERROR("Please provide a name.")
-    return
-  end
-
+  local success = false
+  local rec = nil
   if type == "p" or type == "player" then
-    self.core:AddPlayer(value, flag)
+     rec, success = self.core:AddPlayer(value)
   elseif type == "g" or type == "guild" then
-    self.core:AddGuild(value, flag)
+     rec, success = self.core:AddGuild(value)
   end
+  if success then
+    print("Added record for", type, value)
+    print("  ID:", (rec and (rec.playerId or rec.guildId)) or value)
+  else
+    self:Error("Failed to add record for", type, value, "It may already exist or the name is invalid.")
+    if rec then
+      print("Existing ID:", rec.playerId or rec.guildId)
+    end
+  end
+  local pc = CountMapKeys(self.db.profile.players)
+  local gc = CountMapKeys(self.db.profile.guilds)
+  print("Totals:", "players="..pc..", guilds="..gc)
 end
 
 function PermanentRecord:SlashRemove(args)
   local type = args[2] and args[2]:lower() or ""
   local value = args[3]
-
-  if not type or type == "" then
-    PR_LOG_ERROR("Please specify 'p' for player or 'g' for guild.")
-    return
-  end
-
+  local removed = false
   if type == "p" or type == "player" then
-    self.core:RemovePlayer(value)
+    removed = self.core:RemovePlayer(value)
   elseif type == "g" or type == "guild" then
-    self.core:RemoveGuild(value)
+    removed = self.core:RemoveGuild(value)
   end
+
+  if removed then
+    print("Removed record for", type, value)
+  else
+    self:Error("No record found for", type, value)
+  end
+  local pc = CountMapKeys(self.db.profile.players)
+  local gc = CountMapKeys(self.db.profile.guilds)
+  print("Totals:", "players="..pc..", guilds="..gc)
 end
-
--- function PR_IterateRoster(maxGroup,index)
--- 	index = (index or 0) + 1
--- 	maxGroup = maxGroup or 8
-
--- 	if IsInRaid() then
--- 		if index > GetNumGroupMembers() then
--- 			return
--- 		end
--- 		local name, rank, subgroup, level, class, fileName, zone, online, isDead, role, isML, combatRole = GetRaidRosterInfo(index)
--- 		if subgroup > maxGroup then
--- 			return ExRT.F.IterateRoster(maxGroup,index)
--- 		end
--- 		local guid = UnitGUID(name or "raid"..index)
--- 		name = name or ""
--- 		return index, name, subgroup, fileName, guid, rank, level, online, isDead, combatRole
--- 	else
--- 		local name, rank, subgroup, level, class, fileName, online, isDead, combatRole, _
-
--- 		local unit = index == 1 and "player" or "party"..(index-1)
-
--- 		local guid = UnitGUID(unit)
--- 		if not guid then
--- 			return
--- 		end
-
--- 		subgroup = 1
--- 		name, _ = UnitName(unit)
--- 		name = name or ""
--- 		if _ then
--- 			name = name .. "-" .. _
--- 		end
--- 		class, fileName = UnitClass(unit)
-
--- 		if UnitIsGroupLeader(unit) then
--- 			rank = 2
--- 		else
--- 			rank = 1
--- 		end
-
--- 		level = UnitLevel(unit)
-
--- 		if UnitIsConnected(unit) then
--- 			online = true
--- 		end
-
--- 		if UnitIsDeadOrGhost(unit) then
--- 			isDead = true
--- 		end
-
--- 		combatRole = UnitGroupRolesAssigned(unit)
-
--- 		return index, name, subgroup, fileName, guid, rank, level, online, isDead, combatRole
--- 	end
--- end
