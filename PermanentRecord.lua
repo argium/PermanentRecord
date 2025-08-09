@@ -1,102 +1,10 @@
-local AddonName, _ = ...
+local AddonName, PR = ...
 PermanentRecord = LibStub("AceAddon-3.0"):NewAddon("PermanentRecord", "AceConsole-3.0", "AceEvent-3.0")
 
---- Represents a comment on a player or guild.
----@class Comment
----@field datetime string The date and time of the comment.
----@field zone string The zone where the comment was made.
----@field text string The comment text.
-local Comment = {}
-Comment.__index = Comment
-
----Create a new Comment.
----@param datetime string
----@param zone string
----@param text string
----@return Comment
-function Comment:New(datetime, zone, text)
-  local self = setmetatable({}, Comment)
-  self.datetime = datetime or ""
-  self.zone = zone or ""
-  self.text = text or ""
-  return self
-end
-
---- Represents a player record.
----@class Player
----@field playerId string The player's name.
----@field createdAt number Unix epoch (server time) when this record was created.
----@field comments Comment[] List of comments.
----@field fingerprint string Computed fingerprint for the battle.net account.
----@field sightings number[] Last 5 times this player was seen in your group (Unix epoch timestamps).
-local Player = {}
-Player.__index = Player
-
----Create a new Player.
----@param playerId string
----@param fingerprint string
----@return Player
-function Player:New(playerId, fingerprint)
-  local self = setmetatable({}, Player)
-  self.playerId = playerId or ""
-  self.createdAt = GetServerTime and GetServerTime() or time()
-  self.comments = {}
-  self.fingerprint = fingerprint or ""
-  self.sightings = {}
-  return self
-end
-
----Add a comment to the player.
----@param comment Comment
-function Player:AddComment(comment)
-  table.insert(self.comments, comment)
-end
-
----Add a sighting (time seen in a group). Keeps only the last 5.
----@param ts number Unix epoch timestamp
-function Player:AddSighting(ts)
-  ts = ts or (GetServerTime and GetServerTime() or time())
-  table.insert(self.sightings, ts)
-  -- trim to last 5
-  local max = 5
-  if #self.sightings > max then
-    -- remove oldest extras
-    local excess = #self.sightings - max
-    for _ = 1, excess do
-      table.remove(self.sightings, 1)
-    end
-  end
-end
-
---- Represents a guild record.
----@class Guild
----@field guildId string The guild's name.
----@field createdAt number Unix epoch (server time) when this record was created.
----@field comments Comment[] List of comments.
-local Guild = {}
-Guild.__index = Guild
-
----Create a new Guild.
----@param guildId string
----@return Guild
-function Guild:New(guildId)
-  local self = setmetatable({}, Guild)
-  self.guildId = guildId or ""
-  self.createdAt = GetServerTime and GetServerTime() or time()
-  self.comments = {}
-  return self
-end
-
----Add a comment to the guild.
----@param comment Comment
-function Guild:AddComment(comment)
-  table.insert(self.comments, comment)
-end
-
--- Export classes for use by other modules
-PermanentRecord.Player = Player
-PermanentRecord.Guild = Guild
-PermanentRecord.Comment = Comment
+-- Map model classes from the shared addon table to the global addon object
+PermanentRecord.Player = PR and PR.Player or PermanentRecord.Player
+PermanentRecord.Guild = PR and PR.Guild or PermanentRecord.Guild
+PermanentRecord.Comment = PR and PR.Comment or PermanentRecord.Comment
 
 local defaults = {
   profile = {
@@ -157,6 +65,30 @@ PermanentRecord:RegisterEvent("PLAYER_ENTERING_WORLD", "HandleGroupEvent")
 local function fmtDate(ts)
   if not ts or ts == 0 then return "" end
   return date("%Y-%m-%d %H:%M", ts)
+end
+
+-- Helpers to normalize type tokens and dispatch to core methods
+local TYPE_ALIASES = {
+  p = "player", player = "player", players = "player",
+  g = "guild",  guild  = "guild",  guilds  = "guild",
+}
+
+local CORE_METHODS = {
+  player = { get = "GetPlayer",  add = "AddPlayer",  remove = "RemovePlayer",  list = "ListPlayers",  clear = "ClearPlayers" },
+  guild  = { get = "GetGuild",   add = "AddGuild",   remove = "RemoveGuild",   list = "ListGuilds",   clear = "ClearGuilds"  },
+}
+
+local function normalizeType(tok)
+  return TYPE_ALIASES[(tok or ""):lower()]
+end
+
+local function coreCall(self, kind, action, ...)
+  local methods = CORE_METHODS[kind]
+  if not methods then return nil end
+  local m = methods[action]
+  local core = self and self.core
+  if not (core and m and core[m]) then return nil end
+  return core[m](core, ...)
 end
 
 function PermanentRecord:HandleSlashCmd(input)
@@ -222,15 +154,14 @@ function PermanentRecord:HandleSlashCmd(input)
 end
 
 function PermanentRecord:SlashGet(args)
-  local argType = args[2] and args[2]:lower() or ""
+  local kind = normalizeType(args[2])
   local value = args[3]
-
-  local result = nil
-  if argType == "p" or argType == "player" then
-    result = self.core:GetPlayer(value)
-  elseif argType == "g" or argType == "guild" then
-    result = self.core:GetGuild(value)
+  if not kind then
+    self:Error("Usage: pr get <player|guild> <name>")
+    return
   end
+
+  local result = coreCall(self, kind, "get", value)
 
   if result then
     print("Record found:")
@@ -259,25 +190,25 @@ function PermanentRecord:SlashGet(args)
       end
     end
   else
-    self:Error("No record found for", argType, value)
+    self:Error("No record found for", kind, value)
   end
 end
 
 function PermanentRecord:SlashAdd(args)
-  local argType = args[2] and args[2]:lower() or ""
+  local kind = normalizeType(args[2])
   local value = args[3]
-  local success = false
-  local rec = nil
-  if argType == "p" or argType == "player" then
-     rec, success = self.core:AddPlayer(value)
-  elseif argType == "g" or argType == "guild" then
-     rec, success = self.core:AddGuild(value)
+  if not kind then
+    self:Error("Usage: pr add <player|guild> <name>")
+    return
   end
+
+  local rec, success = coreCall(self, kind, "add", value)
+
   if success then
-    print("Added record for", argType, value)
+    print("Added record for", kind, value)
     print("  ID:", (rec and (rec.playerId or rec.guildId)) or value)
   else
-    self:Error("Failed to add record for", argType, value, "It may already exist or the name is invalid.")
+    self:Error("Failed to add record for", kind, value, "It may already exist or the name is invalid.")
     if rec then
       print("Existing ID:", rec.playerId or rec.guildId)
     end
@@ -285,46 +216,46 @@ function PermanentRecord:SlashAdd(args)
 end
 
 function PermanentRecord:SlashRemove(args)
-  local argType = args[2] and args[2]:lower() or ""
+  local kind = normalizeType(args[2])
   local value = args[3]
-  local removed = false
-  if argType == "p" or argType == "player" then
-    removed = self.core:RemovePlayer(value)
-  elseif argType == "g" or argType == "guild" then
-    removed = self.core:RemoveGuild(value)
+  if not kind then
+    self:Error("Usage: pr remove <player|guild> <name>")
+    return
   end
 
+  local removed = coreCall(self, kind, "remove", value) or false
+
   if removed then
-    print("Removed record for", argType, value)
+    print("Removed record for", kind, value)
   else
-    self:Error("No record found for", argType, value)
+    self:Error("No record found for", kind, value)
   end
 end
 
 function PermanentRecord:SlashList(args)
-  local argType = args[2] and args[2]:lower() or ""
-  if argType == "p" or argType == "player" or argType == "players" then
-    local names = self.core:ListPlayers()
-    print("Players ("..#names.."): ")
-    for _, n in ipairs(names) do print("  -", n) end
-  elseif argType == "g" or argType == "guild" or argType == "guilds" then
-    local names = self.core:ListGuilds()
-    print("Guilds ("..#names.."): ")
-    for _, n in ipairs(names) do print("  -", n) end
-  else
+  local kind = normalizeType(args[2])
+  if not kind then
     self:Error("Usage: pr list <player|guild>")
+    return
   end
+
+  local names = coreCall(self, kind, "list") or {}
+  local label = (kind == "player") and "Players" or "Guilds"
+  print(label.." ("..#names.."): ")
+  for _, n in ipairs(names) do print("  -", n) end
 end
 
 function PermanentRecord:SlashClear(args)
-  local argType = args[2] and args[2]:lower() or ""
-  if argType == "p" or argType == "player" or argType == "players" then
-    local count = self.core:ClearPlayers()
-    print("Cleared", count, "player records")
-  elseif argType == "g" or argType == "guild" or argType == "guilds" then
-    local count = self.core:ClearGuilds()
-    print("Cleared", count, "guild records")
-  else
+  local kind = normalizeType(args[2])
+  if not kind then
     self:Error("Usage: pr clear <player|guild>")
+    return
+  end
+
+  local count = coreCall(self, kind, "clear") or 0
+  if kind == "player" then
+    print("Cleared", count, "player records")
+  else
+    print("Cleared", count, "guild records")
   end
 end
