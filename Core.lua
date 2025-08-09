@@ -6,6 +6,9 @@ local function now()
   return (GetServerTime and GetServerTime() or time())
 end
 
+-- Forward declare so it can be used before its definition
+local GetNormalisedNameAndRealm
+
 function PermanentRecord.Core:DebugLog(...)
   if self.debug then
     print("[PR_TRACE]", ...)
@@ -27,49 +30,6 @@ function PermanentRecord.Core:New(db, debug)
   self.db.profile.players = self.db.profile.players or {}
   self.db.profile.guilds = self.db.profile.guilds or {}
 
-  -- Normalize existing player records
-  for name, rec in pairs(self.db.profile.players) do
-    if type(rec) ~= "table" then
-      -- Convert primitive to structured record
-      self.db.profile.players[name] = PermanentRecord.Player:New(name, "")
-    else
-      if type(rec.comments) ~= "table" then rec.comments = {} end
-      if not rec.playerId or rec.playerId == "" then rec.playerId = name end
-      if rec.fingerprint == nil then rec.fingerprint = "" end
-      if rec.createdAt == nil then rec.createdAt = now() end
-      if type(rec.sightings) ~= "table" then rec.sightings = {} end
-      -- normalize sightings to tables { ts=number, zone=string } and trim to last 5
-      local cleaned = {}
-      for _, s in ipairs(rec.sightings) do
-        if type(s) == "number" then
-          table.insert(cleaned, { ts = s, zone = "" })
-        elseif type(s) == "table" then
-          local ts = tonumber(s.ts) or 0
-          if ts > 0 then
-            local zone = type(s.zone) == "string" and s.zone or ""
-            table.insert(cleaned, { ts = ts, zone = zone })
-          end
-        end
-      end
-      -- keep only last 5, preserving order
-      local keepFrom = math.max(1, #cleaned - 4)
-      rec.sightings = {}
-      for i = keepFrom, #cleaned do table.insert(rec.sightings, cleaned[i]) end
-    end
-  end
-
-  -- Normalize existing guild records
-  for name, rec in pairs(self.db.profile.guilds) do
-    if type(rec) ~= "table" then
-      -- Convert primitive to structured record
-      self.db.profile.guilds[name] = PermanentRecord.Guild:New(name)
-    else
-      if type(rec.comments) ~= "table" then rec.comments = {} end
-      if not rec.guildId or rec.guildId == "" then rec.guildId = name end
-      if rec.createdAt == nil then rec.createdAt = now() end
-    end
-  end
-
   -- runtime state
   self._inGroup = IsInGroup() or false
   self._groupSessionId = 0
@@ -81,17 +41,31 @@ end
 
 ---@param name string Player name, with or without realm.
 ---@return string|nil name Player name with realm if not provided, nil if name is empty
-local function GetNormalisedNameAndRealm(name)
+GetNormalisedNameAndRealm = function(name)
   if not name or name == "" then
     return nil
   end
-  if not name:find("-") then
+  -- Ensure realm present
+  local char, realm = name:match("^([^%-]+)%-(.+)$")
+  if not char then
+    char = name
     local _, playerRealm = UnitFullName("player")
-    if playerRealm then
-      name = name .. "-" .. playerRealm
+    if playerRealm and playerRealm ~= "" then
+      realm = playerRealm
+    else
+      realm = ""
     end
   end
-  return string.lower(name)
+  -- Capitalize character name (first letter upper, rest lower); preserve realm casing
+  char = tostring(char or "")
+  if char ~= "" then
+    char = char:sub(1,1):upper() .. char:sub(2):lower()
+  end
+  if realm ~= "" then
+    return char .. "-" .. realm
+  else
+    return char
+  end
 end
 
 ---@param name string Guild name
