@@ -136,33 +136,36 @@ function PermanentRecord.Core:ProcessGroupRoster(onJoin)
       local currentZone = (GetRealZoneText and GetRealZoneText()) or ""
       for i = 1, GetNumGroupMembers() do
         local unit = prefix..i
-        local playerNameRealm = GetUnitName(unit, true)
-        if playerNameRealm then
-          local normName = GetNormalisedNameAndRealm(playerNameRealm)
-          if normName and normName ~= selfNameRealm then
-            currentRoster[normName] = true
+        -- Only consider real, playable characters
+        if UnitIsPlayer and UnitIsPlayer(unit) then
+          local playerNameRealm = GetUnitName(unit, true)
+          if playerNameRealm then
+            local normName = GetNormalisedNameAndRealm(playerNameRealm)
+            if normName and normName ~= selfNameRealm then
+              currentRoster[normName] = true
 
-            local rec, added = self:AddPlayer(normName)
-            -- Announce if appropriate
-            local lastSeenTs = nil
-            if rec and type(rec.sightings) == "table" and #rec.sightings > 0 then
-              local last = rec.sightings[#rec.sightings]
-              if type(last) == "table" then
-                lastSeenTs = tonumber(last.ts) or nil
-              else
-                lastSeenTs = tonumber(last) or nil
+              local rec, added = self:AddPlayer(normName)
+              -- Announce if appropriate
+              local lastSeenTs = nil
+              if rec and type(rec.sightings) == "table" and #rec.sightings > 0 then
+                local last = rec.sightings[#rec.sightings]
+                if type(last) == "table" then
+                  lastSeenTs = tonumber(last.ts) or nil
+                else
+                  lastSeenTs = tonumber(last) or nil
+                end
               end
-            end
 
-            local isNewToRoster = onJoin or (self._lastRoster and not self._lastRoster[normName])
-            if isNewToRoster and not added and lastSeenTs then
-              self:AnnounceSeen(normName, lastSeenTs)
-            end
+              local isNewToRoster = onJoin or (self._lastRoster and not self._lastRoster[normName])
+              if isNewToRoster and not added and lastSeenTs then
+                self:AnnounceSeen(normName, lastSeenTs)
+              end
 
-            -- Record a sighting once per group session
-            if rec and not self._seenThisGroup[normName] then
-              rec:AddSighting(now(), currentZone)
-              self._seenThisGroup[normName] = self._groupSessionId
+              -- Record a sighting once per group session
+              if rec and not self._seenThisGroup[normName] then
+                rec:AddSighting(now(), currentZone)
+                self._seenThisGroup[normName] = self._groupSessionId
+              end
             end
           end
         end
