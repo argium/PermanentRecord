@@ -21,3 +21,4 @@ Guild.lua
 
 PermanentRecord.lua
 Core.lua
+SlashCmdHandler.lua

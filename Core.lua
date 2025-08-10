@@ -13,7 +13,7 @@ local function ToNormalisedCase(name, preserveCase)
   if preserveCase then
     return s
   end
-  return s:sub(1,1):upper() .. s:sub(2):lower()
+  return s:sub(1, 1):upper() .. s:sub(2):lower()
 end
 
 ---@param name string Player name, with or without realm.
@@ -94,9 +94,9 @@ end
 
 function PermanentRecord.Core:AnnounceSeen(playerName, lastSeenTs)
   if lastSeenTs and lastSeenTs > 0 then
-    print("["..AddonName.."]", "Seen", playerName, "before. Last seen:", fmtDate(lastSeenTs))
+    print("[" .. AddonName .. "]", "Seen", playerName, "before. Last seen:", fmtDate(lastSeenTs))
   else
-    print("["..AddonName.."]", "Seen", playerName, "before.")
+    print("[" .. AddonName .. "]", "Seen", playerName, "before.")
   end
 end
 
@@ -132,13 +132,13 @@ function PermanentRecord.Core:ProcessGroupRoster(onJoin)
 
       self:DebugLog("Processing group roster update")
 
-      local prefix  = IsInRaid() and "raid" or "party"
+      local prefix        = IsInRaid() and "raid" or "party"
       local currentRoster = {}
 
       local selfNameRealm = GetNormalisedNameAndRealm(GetUnitName("player", true), true)
-      local currentZone = (GetRealZoneText and GetRealZoneText()) or ""
+      local currentZone   = (GetRealZoneText and GetRealZoneText()) or ""
       for i = 1, GetNumGroupMembers() do
-        local unit = prefix..i
+        local unit = prefix .. i
         -- Only consider real, playable characters
         if UnitIsPlayer and UnitIsPlayer(unit) then
           local playerNameRealm = GetUnitName(unit, true)
@@ -193,6 +193,10 @@ function PermanentRecord.Core:OnGroupLeft()
   self._seenThisGroup = {}
   self._lastRoster = {}
 end
+
+---------------------------------------------------------------------------------------------
+---  PLAYER METHODS
+---------------------------------------------------------------------------------------------
 
 ---@param name string Player name, assumed to be the player's realm if not provided.
 ---@param unit string|nil Optional unit token to populate class/spec
@@ -250,6 +254,26 @@ function PermanentRecord.Core:RemovePlayer(name)
   end
 end
 
+--- List all players in the database.
+--- @return string[] players List of player names
+function PermanentRecord.Core:ListPlayers()
+  return tableKeysSorted(self.db.profile.players or {})
+end
+
+--- Clear all player records.
+--- @return number count Number of records cleared
+function PermanentRecord.Core:ClearPlayers()
+  local count = 0
+  for _ in pairs(self.db.profile.players or {}) do count = count + 1 end
+  self.db.profile.players = {}
+  return count
+end
+
+---------------------------------------------------------------------------------------------
+---  GUILD METHODS
+---------------------------------------------------------------------------------------------
+
+
 ---@param name string Guild name
 ---@param preserveCase boolean|nil If true, preserve input name casing (used for programmatic additions)
 ---@return Guild|nil guild The Guild instance if added or already exists, or nil if invalid
@@ -297,24 +321,17 @@ function PermanentRecord.Core:RemoveGuild(name, preserveCase)
   end
 end
 
-function PermanentRecord.Core:ListPlayers()
-  return tableKeysSorted(self.db.profile.players or {})
-end
-
-function PermanentRecord.Core:ListGuilds()
-  return tableKeysSorted(self.db.profile.guilds or {})
-end
-
-function PermanentRecord.Core:ClearPlayers()
-  local count = 0
-  for _ in pairs(self.db.profile.players or {}) do count = count + 1 end
-  self.db.profile.players = {}
-  return count
-end
-
+--- Clear all guild records.
+--- @return number count Number of records cleared
 function PermanentRecord.Core:ClearGuilds()
   local count = 0
   for _ in pairs(self.db.profile.guilds or {}) do count = count + 1 end
   self.db.profile.guilds = {}
   return count
+end
+
+--- List all guilds in the database.
+--- @return string[] guilds List of guild names
+function PermanentRecord.Core:ListGuilds()
+  return tableKeysSorted(self.db.profile.guilds or {})
 end
