@@ -171,6 +171,7 @@ function PermanentRecord.Core:ProcessGroupRoster(onJoin)
                   local gName = GetGuildInfo(unit)
                   if gName then guildName = gName end
                 end
+                assert(type(rec.AddSighting) == "function", "PermanentRecord.Player is missing AddSighting()")
                 rec:AddSighting(now(), currentZone, guildName)
                 self._seenThisGroup[normName] = self._groupSessionId
               end
