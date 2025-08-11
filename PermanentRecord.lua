@@ -49,3 +49,75 @@ PermanentRecord:RegisterEvent("GROUP_ROSTER_UPDATE", "HandleGroupEvent")
 PermanentRecord:RegisterEvent("GROUP_JOINED", "HandleGroupEvent")
 PermanentRecord:RegisterEvent("GROUP_LEFT", "HandleGroupEvent")
 -- PermanentRecord:RegisterEvent("PLAYER_ENTERING_WORLD", "HandleGroupEvent")
+
+local function OnTooltipSetItem(tooltip, data)
+  if not tooltip then return end
+  assert(PermanentRecord.core, "PermanentRecord core is not initialized")
+
+  local name, unit = tooltip:GetUnit()
+  if not UnitIsPlayer(unit) then return end
+  PermanentRecord:DebugLog("OnTooltipSetItem for unit:", name, unit)
+
+  -- Use name with realm for lookup; core will normalize
+  local fullName = GetUnitName(unit, true) or name
+  if not fullName or fullName == "" then return end
+  PermanentRecord:DebugLog("Looking up player:", fullName)
+
+  local rec = PermanentRecord.core:GetPlayer(fullName)
+  if not rec then return end
+  PermanentRecord:DebugLog("Found record for player:", fullName)
+
+  -- Helper: return a friendly relative time string like "3 days ago"
+  local function FormatTimeAgo(ts)
+    if not ts then return "unknown" end
+    ts = tonumber(ts)
+    if not ts or ts <= 0 then return "unknown" end
+    local now = time()
+    local diff = now - ts
+    if diff < 0 then diff = 0 end
+
+    local minute = 60
+    local hour = 60 * minute
+    local day = 24 * hour
+    local month = 30 * day
+    local year = 365 * day
+
+    if diff < 45 then
+      return "just now"
+    elseif diff < 90 then
+      return "1 minute ago"
+    elseif diff < hour then
+      return string.format("%d minutes ago", math.floor(diff / minute))
+    elseif diff < 2 * hour then
+      return "1 hour ago"
+    elseif diff < day then
+      return string.format("%d hours ago", math.floor(diff / hour))
+    elseif diff < 2 * day then
+      return "1 day ago"
+    elseif diff < month then
+      return string.format("%d days ago", math.floor(diff / day))
+    elseif diff < 2 * month then
+      return "1 month ago"
+    elseif diff < year then
+      return string.format("%d months ago", math.floor(diff / month))
+    elseif diff < 2 * year then
+      return "1 year ago"
+    else
+      return string.format("%d years ago", math.floor(diff / year))
+    end
+  end
+
+  PermanentRecord:DebugLog("Created:", rec.createdAt)
+  PermanentRecord:DebugLog("Created:", FormatTimeAgo(rec.createdAt))
+
+  tooltip:AddLine("|cff875cffRecord created: |cffffffff" .. FormatTimeAgo(rec.createdAt))
+
+  local ts = tonumber(rec.sightings[#rec.sightings])
+  if ts then
+    tooltip:AddLine("|cff875cffLast grouped: |cffffffff" .. FormatTimeAgo(ts))
+  end
+
+  tooltip:Show()
+end
+
+TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, OnTooltipSetItem);
