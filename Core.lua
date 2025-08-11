@@ -62,9 +62,34 @@ local function tableKeysSorted(t)
   return out
 end
 
+-- Rehydrate helpers: SavedVariables strip metatables; restore class methods and defaults
+local function RehydratePlayer(rec, name)
+  if type(rec) ~= "table" then return rec end
+  local PlayerClass = PermanentRecord and PermanentRecord.Player
+  if PlayerClass and (getmetatable(rec) ~= PlayerClass or type(rec.AddSighting) ~= "function") then
+    setmetatable(rec, PlayerClass)
+  end
+  if type(rec.comments) ~= "table" then rec.comments = {} end
+  if type(rec.sightings) ~= "table" then rec.sightings = {} end
+  rec.playerId = tostring(rec.playerId or name or "")
+  rec.fingerprint = tostring(rec.fingerprint or "")
+  return rec
+end
+
+local function RehydrateGuild(rec, name)
+  if type(rec) ~= "table" then return rec end
+  local GuildClass = PermanentRecord and PermanentRecord.Guild
+  if GuildClass and (getmetatable(rec) ~= GuildClass) then
+    setmetatable(rec, GuildClass)
+  end
+  if type(rec.comments) ~= "table" then rec.comments = {} end
+  rec.guildId = tostring(rec.guildId or name or "")
+  return rec
+end
+
 function PermanentRecord.Core:DebugLog(...)
-  if self.debug then
-    print("[PR_TRACE]", ...)
+  if PermanentRecord and type(PermanentRecord.DebugLog) == "function" then
+    PermanentRecord:DebugLog(...)
   end
 end
 
@@ -82,6 +107,18 @@ function PermanentRecord.Core:New(db, debug)
   -- Ensure profile tables exist
   self.db.profile.players = self.db.profile.players or {}
   self.db.profile.guilds = self.db.profile.guilds or {}
+
+  -- Rehydrate saved data: SavedVariables strip metatables; restore class methods and defaults
+  if type(self.db.profile.players) == "table" then
+    for name, rec in pairs(self.db.profile.players) do
+  self.db.profile.players[name] = RehydratePlayer(rec, name)
+    end
+  end
+  if type(self.db.profile.guilds) == "table" then
+    for name, rec in pairs(self.db.profile.guilds) do
+  self.db.profile.guilds[name] = RehydrateGuild(rec, name)
+    end
+  end
 
   -- runtime state
   self._inGroup = IsInGroup() or false
@@ -160,7 +197,9 @@ function PermanentRecord.Core:ProcessGroupRoster(onJoin)
               end
 
               local isNewToRoster = onJoin or (self._lastRoster and not self._lastRoster[normName])
-              if isNewToRoster and not added and lastSeenTs then
+              -- Suppress announcement if we've already seen this player during the current group session
+              local alreadySeenThisSession = (self._seenThisGroup and self._seenThisGroup[normName] == self._groupSessionId)
+              if isNewToRoster and not added and lastSeenTs and not alreadySeenThisSession then
                 self:AnnounceSeen(normName, lastSeenTs)
               end
 
@@ -171,7 +210,6 @@ function PermanentRecord.Core:ProcessGroupRoster(onJoin)
                   local gName = GetGuildInfo(unit)
                   if gName then guildName = gName end
                 end
-                assert(type(rec.AddSighting) == "function", "PermanentRecord.Player is missing AddSighting()")
                 rec:AddSighting(now(), currentZone, guildName)
                 self._seenThisGroup[normName] = self._groupSessionId
               end

@@ -110,14 +110,97 @@ local function OnTooltipSetItem(tooltip, data)
   PermanentRecord:DebugLog("Created:", rec.createdAt)
   PermanentRecord:DebugLog("Created:", FormatTimeAgo(rec.createdAt))
 
-  tooltip:AddLine("|cff875cffRecord created: |cffffffff" .. FormatTimeAgo(rec.createdAt))
+  -- tooltip:AddLine("|cff875cffRecord created: |cffffffff" .. FormatTimeAgo(rec.createdAt))
 
-  local ts = tonumber(rec.sightings[#rec.sightings])
-  if ts then
+  -- Last grouped (supports both legacy numeric and new {ts=...} entry formats)
+  local lastSighting = rec.sightings and rec.sightings[#rec.sightings]
+  local ts = nil
+  if type(lastSighting) == "table" then
+    ts = tonumber(lastSighting.ts)
+  else
+    ts = tonumber(lastSighting)
+  end
+  if ts and ts > 0 then
     tooltip:AddLine("|cff875cffLast grouped: |cffffffff" .. FormatTimeAgo(ts))
+  end
+
+  -- Most recent note
+  local lastComment = rec.comments and rec.comments[#rec.comments]
+  local note = lastComment and lastComment.text or nil
+  if note and note ~= "" then
+    tooltip:AddLine("|cff875cffNote: |cffffffff" .. note)
   end
 
   tooltip:Show()
 end
 
 TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, OnTooltipSetItem);
+
+-- Static popup to capture a note for a player
+-- StaticPopupDialogs = StaticPopupDialogs or {}
+-- StaticPopupDialogs["PERMANENTRECORD_ADD_NOTE"] = {
+--   text = "Add note for %s",
+--   button1 = SAVE or "Save",
+--   button2 = "Discard",
+--   hasEditBox = true,
+--   editBoxWidth = 280,
+--   maxLetters = 1000,
+--   timeout = 0,
+--   whileDead = true,
+--   hideOnEscape = true,
+--   preferredIndex = 3,
+--   OnShow = function(self)
+--     if self.editBox then
+--       self.editBox:SetAutoFocus(true)
+--       self.editBox:SetText("")
+--       self.editBox:HighlightText()
+--     end
+--   end,
+--   EditBoxOnEnterPressed = function(self)
+--     local parent = self:GetParent()
+--     if parent and parent.button1 then parent.button1:Click() end
+--   end,
+--   OnAccept = function(self, data)
+--     local text = self.editBox and self.editBox:GetText() or ""
+--     local trim = _G.strtrim or function(s) return (s or ""):gsub("^%s+", ""):gsub("%s+$", "") end
+--     local note = trim(text)
+--     if note == "" then return end
+--     if not PermanentRecord or not PermanentRecord.core then return end
+
+--     local fullName = data and data.fullName or nil
+--     local unit = data and data.unit or nil
+--     if not fullName or fullName == "" then return end
+
+--     local player = PermanentRecord.core:AddPlayer(fullName, unit, true)
+--     if not player then return end
+
+--     local nowTs = (GetServerTime and GetServerTime() or time())
+--     local dt = date("%Y-%m-%d %H:%M", nowTs)
+--     local zone = (GetRealZoneText and GetRealZoneText()) or ""
+--     local comment = PermanentRecord.Comment:New(dt, zone, note)
+--     player:AddComment(comment)
+--     PermanentRecord:DebugLog("Saved note for", fullName)
+--   end,
+-- }
+
+-- -- Helper to add the "Add note" entry to a Unit menu when it refers to a player
+-- local function PR_AddNoteMenuEntry(ownerRegion, rootDescription, contextData, assumePlayer)
+--   -- Try to discover the unit token
+--   local unit = contextData and contextData.unit or (ownerRegion and ownerRegion.unit) or nil
+--   local isPlayerUnit = unit and UnitIsPlayer and UnitIsPlayer(unit)
+--   if not isPlayerUnit and not assumePlayer then return end
+
+--   -- Determine display and full names
+--   local fullName = (unit and GetUnitName and GetUnitName(unit, true)) or (contextData and contextData.name) or nil
+--   local displayName = (unit and GetUnitName and GetUnitName(unit, false)) or fullName or "player"
+--   if not fullName or fullName == "" then return end
+
+--   rootDescription:CreateButton("Add note", function()
+--     StaticPopup_Show("PERMANENTRECORD_ADD_NOTE", displayName, nil, { unit = unit, fullName = fullName })
+--   end)
+-- end
+
+-- -- Show for other player units
+-- Menu.ModifyMenu("MENU_UNIT_PLAYER", function(ownerRegion, rootDescription, contextData)
+--   PR_AddNoteMenuEntry(ownerRegion, rootDescription, contextData, true)
+-- end)
