@@ -71,6 +71,28 @@ local function RehydratePlayer(rec, name)
   end
   if type(rec.comments) ~= "table" then rec.comments = {} end
   if type(rec.sightings) ~= "table" then rec.sightings = {} end
+  -- Backfill firstSighting for older data if missing, using the earliest available structured entry
+  if rec.firstSighting == nil then
+    local earliestTs, earliestEntry
+    for i = 1, #rec.sightings do
+      local entry = rec.sightings[i]
+      if type(entry) == "table" then
+        local tsCandidate = tonumber(entry.ts)
+      if tsCandidate and tsCandidate > 0 and (not earliestTs or tsCandidate < earliestTs) then
+        earliestTs = tsCandidate
+        earliestEntry = entry
+      end
+      end
+    end
+    if earliestTs then
+      rec.firstSighting = {
+        ts = earliestTs,
+        zone = tostring(earliestEntry.zone or ""),
+        guild = tostring(earliestEntry.guild or ""),
+        seenBy = tostring(earliestEntry.seenBy or ""),
+      }
+    end
+  end
   rec.playerId = tostring(rec.playerId or name or "")
   rec.fingerprint = tostring(rec.fingerprint or "")
   return rec
@@ -88,8 +110,49 @@ local function RehydrateGuild(rec, name)
 end
 
 function PermanentRecord.Core:DebugLog(...)
-  if PermanentRecord and type(PermanentRecord.DebugLog) == "function" then
-    PermanentRecord:DebugLog(...)
+  PermanentRecord:DebugLog(...)
+end
+
+-- Public helpers to avoid duplication across files
+function PermanentRecord.Core:FormatDate(ts)
+  return fmtDate(ts)
+end
+
+function PermanentRecord.Core:FormatTimeAgo(ts)
+  ts = tonumber(ts)
+  if not ts or ts <= 0 then return "unknown" end
+  local nowTs = now()
+  local diff = nowTs - ts
+  if diff < 0 then diff = 0 end
+
+  local minute = 60
+  local hour = 60 * minute
+  local day = 24 * hour
+  local month = 30 * day
+  local year = 365 * day
+
+  if diff < 45 then
+    return "just now"
+  elseif diff < 90 then
+    return "1 minute ago"
+  elseif diff < hour then
+    return string.format("%d minutes ago", math.floor(diff / minute))
+  elseif diff < 2 * hour then
+    return "1 hour ago"
+  elseif diff < day then
+    return string.format("%d hours ago", math.floor(diff / hour))
+  elseif diff < 2 * day then
+    return "1 day ago"
+  elseif diff < month then
+    return string.format("%d days ago", math.floor(diff / day))
+  elseif diff < 2 * month then
+    return "1 month ago"
+  elseif diff < year then
+    return string.format("%d months ago", math.floor(diff / month))
+  elseif diff < 2 * year then
+    return "1 year ago"
+  else
+    return string.format("%d years ago", math.floor(diff / year))
   end
 end
 
@@ -191,8 +254,6 @@ function PermanentRecord.Core:ProcessGroupRoster(onJoin)
                 local last = rec.sightings[#rec.sightings]
                 if type(last) == "table" then
                   lastSeenTs = tonumber(last.ts) or nil
-                else
-                  lastSeenTs = tonumber(last) or nil
                 end
               end
 
@@ -210,7 +271,7 @@ function PermanentRecord.Core:ProcessGroupRoster(onJoin)
                   local gName = GetGuildInfo(unit)
                   if gName then guildName = gName end
                 end
-                rec:AddSighting(now(), currentZone, guildName)
+                rec:AddSighting(now(), currentZone, guildName, selfNameRealm)
                 self._seenThisGroup[normName] = self._groupSessionId
               end
             end
@@ -245,22 +306,22 @@ function PermanentRecord.Core:AddPlayer(name, unit, preserveCase)
   if not name or name == "" then
     return nil, false
   end
-  name = GetNormalisedNameAndRealm(name, preserveCase)
-  if not name then
+  local normName = GetNormalisedNameAndRealm(name, preserveCase)
+  if not normName then
     return nil, false
   end
-  local existing = self.db.profile.players[name]
+  local existing = self.db.profile.players[normName]
   if existing ~= nil then
     if unit and existing.UpdateFromUnit then
       existing:UpdateFromUnit(unit)
     end
     return existing, false
   end
-  local player = PermanentRecord.Player:New(name, "")
+  local player = PermanentRecord.Player:New(normName, "")
   if unit and player.UpdateFromUnit then
     player:UpdateFromUnit(unit)
   end
-  self.db.profile.players[name] = player
+  self.db.profile.players[normName] = player
   return player, true
 end
 
@@ -270,9 +331,9 @@ function PermanentRecord.Core:GetPlayer(name)
   if not name or name == "" then
     return nil
   end
-  name = GetNormalisedNameAndRealm(name)
-  self:DebugLog("Getting record for player:", name)
-  return self.db.profile.players[name]
+  local normName = GetNormalisedNameAndRealm(name)
+  self:DebugLog("Getting record for player:", normName)
+  return normName and self.db.profile.players[normName] or nil
 end
 
 ---@param name string Player name, assumed to be the player's realm if not provided.
@@ -281,11 +342,11 @@ function PermanentRecord.Core:RemovePlayer(name)
   if not name or name == "" then
     return false
   end
-  name = GetNormalisedNameAndRealm(name)
+  local normName = GetNormalisedNameAndRealm(name)
   local players = self.db and self.db.profile and self.db.profile.players
-  if type(players) == "table" and players[name] ~= nil then
-    rawset(players, name, nil)
-    self:DebugLog("Removed record for player:", name)
+  if type(players) == "table" and normName and players[normName] ~= nil then
+    rawset(players, normName, nil)
+    self:DebugLog("Removed record for player:", normName)
     return true
   else
     return false

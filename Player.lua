@@ -5,7 +5,8 @@ local AddonName, PR = ...
 ---@field createdAt number Unix epoch (server time) when this record was created.
 ---@field comments Comment[] List of comments.
 ---@field fingerprint string Computed fingerprint for the battle.net account.
----@field sightings table[] Last 5 times this player was seen in your group. Each entry is a table { ts = number, zone = string, guild = string }.
+---@field sightings table[] Last 5 times this player was seen in your group. Each entry is a table { ts = number, zone = string, guild = string, seenBy = string } where seenBy is "Name-Realm" of your character at that time.
+---@field firstSighting table|nil The first ever sighting { ts = number, zone = string, guild = string, seenBy = string }.
 ---@field className string|nil Localized class name (e.g., "Warrior").
 ---@field classFile string|nil Class file token (e.g., "WARRIOR").
 ---@field specId number|nil Specialization ID if known.
@@ -25,6 +26,7 @@ function Player:New(playerId, fingerprint)
   self.comments = {}
   self.fingerprint = fingerprint or ""
   self.sightings = {}
+  self.firstSighting = nil
   -- class/spec info (filled when seen in a group with a valid unit)
   self.className = nil
   self.classFile = nil
@@ -89,11 +91,17 @@ end
 ---@param ts number Unix epoch timestamp
 ---@param zone string|nil Zone name where the sighting happened
 ---@param guild string|nil Guild name at the time of sighting
-function Player:AddSighting(ts, zone, guild)
+---@param seenBy string|nil Name-Realm of your character at the time of the sighting
+function Player:AddSighting(ts, zone, guild, seenBy)
   ts = ts or (GetServerTime and GetServerTime() or time())
   zone = tostring(zone or "")
   guild = tostring(guild or "")
-  table.insert(self.sightings, { ts = ts, zone = zone, guild = guild })
+  local me = tostring(seenBy or (GetUnitName and GetUnitName("player", true)) or "")
+  -- Preserve the very first sighting forever
+  if not self.firstSighting then
+    self.firstSighting = { ts = ts, zone = zone, guild = guild, seenBy = me }
+  end
+  table.insert(self.sightings, { ts = ts, zone = zone, guild = guild, seenBy = me })
   -- trim to last 5
   local max = 5
   if #self.sightings > max then

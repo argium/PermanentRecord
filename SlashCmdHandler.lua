@@ -1,11 +1,5 @@
 -- Slash command handling for PermanentRecord
 
--- Local utilities specific to this module
-local function fmtDate(ts)
-  if not ts or ts == 0 then return "" end
-  return date("%Y-%m-%d %H:%M", ts)
-end
-
 local function CountMapKeys(t)
   local c = 0
   if t then for _ in pairs(t) do c = c + 1 end end
@@ -120,7 +114,7 @@ function PermanentRecord:SlashGet(args)
     print("  Type:", result.playerId and "Player" or "Guild")
     print("  ID:", result.playerId or result.guildId)
     if result.createdAt then
-      print("  Created:", fmtDate(result.createdAt))
+      print("  Created:", PermanentRecord.core:FormatDate(result.createdAt))
     end
     if result.playerId and result.fingerprint and result.fingerprint ~= "" then
       print("  Fingerprint:", result.fingerprint)
@@ -139,9 +133,9 @@ function PermanentRecord:SlashGet(args)
       print("  Sightings:", #sightings)
       for i, s in ipairs(sightings) do
         if type(s) == "table" then
-          print("    -", fmtDate(s.ts), s.zone or "")
+          print("    -", PermanentRecord.core:FormatDate(s.ts), s.zone or "")
         else
-          print("    -", fmtDate(s))
+          print("    -", PermanentRecord.core:FormatDate(s))
         end
       end
     end
