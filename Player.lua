@@ -46,6 +46,7 @@ function Player:AddComment(comment)
   comment.datetime = tostring(comment.datetime or "")
   comment.zone = tostring(comment.zone or "")
   comment.text = tostring(comment.text or "")
+  comment.author = tostring(comment.author or (GetUnitName and GetUnitName("player", true)) or "")
   table.insert(self.comments, comment)
 end
 
