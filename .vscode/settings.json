@@ -25,6 +25,7 @@
         "hash_SlashCmdList",
         "NORMAL_FONT_COLOR_CODE",
         "FONT_COLOR_CODE_CLOSE",
-        "TooltipDataProcessor"
+        "TooltipDataProcessor",
+        "class"
     ]
 }

@@ -193,11 +193,19 @@ function PermanentRecord.Core:New(db, debug)
 end
 
 function PermanentRecord.Core:AnnounceSeen(playerName, lastSeenTs)
+  local msg
   if lastSeenTs and lastSeenTs > 0 then
-    print("[" .. AddonName .. "]", "Seen", playerName, "before. Last seen:", fmtDate(lastSeenTs))
+    local rel = self:FormatTimeAgo(lastSeenTs) or "unknown"
+    -- Avoid double 'ago' if rel already includes it
+    if rel:sub(-4) == " ago" or rel == "just now" then
+      msg = string.format("Last saw %s %s", playerName, rel)
+    else
+      msg = string.format("Last saw %s %s ago", playerName, rel)
+    end
   else
-    print("[" .. AddonName .. "]", "Seen", playerName, "before.")
+    msg = string.format("Last saw %s unknown", playerName)
   end
+  print("[" .. AddonName .. "]", msg)
 end
 
 --- Processes group roster change events to check if any players have records.
@@ -279,7 +287,6 @@ function PermanentRecord.Core:ProcessGroupRoster(onJoin)
         end
       end
 
-      -- update last roster set
       self._lastRoster = currentRoster
     end
   until not self._rosterPending

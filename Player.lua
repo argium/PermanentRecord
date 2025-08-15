@@ -20,9 +20,13 @@ Player.__index = Player
 ---@param fingerprint string
 ---@return Player
 function Player:New(playerId, fingerprint)
+  if not playerId or playerId == "" then
+    PermanentRecord:Error("Player ID cannot be empty")
+  end
+
   local self = setmetatable({}, Player)
-  self.playerId = playerId or ""
-  self.createdAt = GetServerTime and GetServerTime() or time()
+  self.playerId = playerId
+  self.createdAt = time()
   self.comments = {}
   self.fingerprint = fingerprint or ""
   self.sightings = {}
