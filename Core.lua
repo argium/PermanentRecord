@@ -62,6 +62,44 @@ local function tableKeysSorted(t)
   return out
 end
 
+-- Determine current activity priority and displayable location name
+-- Priority order (high -> low): raid (6) > mythic+ (5) > arena (4) > rated BG (3) > BG (2) > dungeon (1) > other (0)
+local function GetCurrentActivity()
+  local zone = (GetRealZoneText and GetRealZoneText()) or ""
+  local prio = 0
+  local inInst, instType = false, "none"
+  if IsInInstance then inInst, instType = IsInInstance() end
+  if inInst then
+    local instName, difficultyID
+    if GetInstanceInfo then
+      local a, _, _, _, _, _, _, _, _, _, k = GetInstanceInfo()
+      instName, difficultyID = a, k
+    end
+    if instName and instName ~= "" then zone = instName end
+    if instType == "raid" then
+      prio = 6
+    elseif instType == "party" then
+      if C_ChallengeMode and C_ChallengeMode.IsChallengeModeActive and C_ChallengeMode.IsChallengeModeActive() then
+        prio = 5
+      else
+        prio = 1
+      end
+    elseif instType == "arena" then
+      prio = 4
+    elseif instType == "pvp" then
+      local rated = C_PvP and C_PvP.IsRatedBattleground and C_PvP.IsRatedBattleground()
+      prio = rated and 3 or 2
+    else
+      prio = 0
+    end
+    -- Fallback: some clients report keystone via difficultyID
+    if prio == 1 and type(difficultyID) == "number" and difficultyID == 8 then
+      prio = 5
+    end
+  end
+  return zone, prio
+end
+
 ---------------------------------------------------------------------------------------------
 --  MODEL CLASSES (inlined)
 ---------------------------------------------------------------------------------------------
@@ -76,7 +114,8 @@ Comment.__index = Comment
 
 function Comment:New(datetime, zone, text, author)
   local raw = { datetime = datetime, zone = zone, text = text, author = author }
-  local c = PermanentRecord and PermanentRecord.Core and PermanentRecord.Core.SanitizeComment and PermanentRecord.Core:SanitizeComment(raw) or raw
+  local c = PermanentRecord and PermanentRecord.Core and PermanentRecord.Core.SanitizeComment and
+  PermanentRecord.Core:SanitizeComment(raw) or raw
   return setmetatable(c, Comment)
 end
 
@@ -97,7 +136,8 @@ function Guild:New(guildId)
 end
 
 function Guild:AddComment(comment)
-  local c = PermanentRecord and PermanentRecord.Core and PermanentRecord.Core.SanitizeComment and PermanentRecord.Core:SanitizeComment(comment) or nil
+  local c = PermanentRecord and PermanentRecord.Core and PermanentRecord.Core.SanitizeComment and
+  PermanentRecord.Core:SanitizeComment(comment) or nil
   if not c then return end
   table.insert(self.comments, c)
 end
@@ -138,7 +178,8 @@ function Player:New(playerId, fingerprint)
 end
 
 function Player:AddComment(comment)
-  local c = PermanentRecord and PermanentRecord.Core and PermanentRecord.Core.SanitizeComment and PermanentRecord.Core:SanitizeComment(comment) or nil
+  local c = PermanentRecord and PermanentRecord.Core and PermanentRecord.Core.SanitizeComment and
+  PermanentRecord.Core:SanitizeComment(comment) or nil
   if not c then return end
   table.insert(self.comments, c)
 end
@@ -224,10 +265,10 @@ local function RehydratePlayer(rec, name)
       local entry = rec.sightings[i]
       if type(entry) == "table" then
         local tsCandidate = tonumber(entry.ts)
-      if tsCandidate and tsCandidate > 0 and (not earliestTs or tsCandidate < earliestTs) then
-        earliestTs = tsCandidate
-        earliestEntry = entry
-      end
+        if tsCandidate and tsCandidate > 0 and (not earliestTs or tsCandidate < earliestTs) then
+          earliestTs = tsCandidate
+          earliestEntry = entry
+        end
       end
     end
     if earliestTs then
@@ -346,12 +387,12 @@ function PermanentRecord.Core:New(db, debug)
   -- Rehydrate saved data: SavedVariables strip metatables; restore class methods and defaults
   if type(self.db.profile.players) == "table" then
     for name, rec in pairs(self.db.profile.players) do
-  self.db.profile.players[name] = RehydratePlayer(rec, name)
+      self.db.profile.players[name] = RehydratePlayer(rec, name)
     end
   end
   if type(self.db.profile.guilds) == "table" then
     for name, rec in pairs(self.db.profile.guilds) do
-  self.db.profile.guilds[name] = RehydrateGuild(rec, name)
+      self.db.profile.guilds[name] = RehydrateGuild(rec, name)
     end
   end
 
@@ -360,6 +401,7 @@ function PermanentRecord.Core:New(db, debug)
   self._groupSessionId = 0
   self._seenThisGroup = {}
   self._lastRoster = {}
+  self._sessionSighting = {}
 
   return self
 end
@@ -399,24 +441,63 @@ function PermanentRecord.Core:ProcessGroupRoster(onJoin)
       if self._inGroup then
         self:OnGroupLeft()
       end
+      -- If persisted session was active but we are no longer in a group, mark it inactive
+      if self.db and self.db.global then
+        local sess = self.db.global.session
+        if type(sess) == "table" and sess.active then
+          sess.active = false
+        end
+      end
       self:DebugLog("Not in a group, skipping roster processing.")
     else
       -- entering a group session if previously not in group
       if not self._inGroup then
-        self._inGroup = true
-        self._groupSessionId = (self._groupSessionId or 0) + 1
-        self._seenThisGroup = {}
-        self._lastRoster = {}
-        self:DebugLog("Starting group session", self._groupSessionId)
+        local sess
+        if self.db and self.db.global then
+          self.db.global.session = self.db.global.session or {}
+          sess = self.db.global.session
+        end
+        if sess and sess.active and type(sess.id) == "number" then
+          -- Resume existing session across reload/disconnect
+          self._inGroup = true
+          self._groupSessionId = sess.id
+          self._seenThisGroup = {}
+          if type(sess.seen) == "table" then
+            for name, seen in pairs(sess.seen) do
+              if seen then self._seenThisGroup[name] = self._groupSessionId end
+            end
+          end
+          self._lastRoster = type(sess.roster) == "table" and sess.roster or {}
+          self._sessionSighting = {}
+          self:DebugLog("Resuming group session", self._groupSessionId)
+        else
+          -- Start a new session
+          self._inGroup = true
+          local lastId = (sess and type(sess.lastId) == "number" and sess.lastId) or 0
+          self._groupSessionId = lastId + 1
+          self._seenThisGroup = {}
+          self._lastRoster = {}
+          self._sessionSighting = {}
+          if sess then
+            sess.active = true
+            sess.id = self._groupSessionId
+            sess.lastId = self._groupSessionId
+            sess.seen = {}
+            sess.prio = {}
+            sess.roster = {}
+            sess.startedAt = now()
+          end
+          self:DebugLog("Starting group session", self._groupSessionId)
+        end
       end
 
       self:DebugLog("Processing group roster update")
 
-      local prefix        = IsInRaid() and "raid" or "party"
-      local currentRoster = {}
+      local prefix                   = IsInRaid() and "raid" or "party"
+  local currentRoster            = {}
 
-      local selfNameRealm = GetNormalisedNameAndRealm(GetUnitName("player", true), true)
-      local currentZone   = (GetRealZoneText and GetRealZoneText()) or ""
+      local selfNameRealm            = GetNormalisedNameAndRealm(GetUnitName("player", true), true)
+      local currentZone, currentPrio = GetCurrentActivity()
       for i = 1, GetNumGroupMembers() do
         local unit = prefix .. i
         -- Only consider real, playable characters
@@ -453,6 +534,31 @@ function PermanentRecord.Core:ProcessGroupRoster(onJoin)
                 end
                 rec:AddSighting(now(), currentZone, guildName, selfNameRealm)
                 self._seenThisGroup[normName] = self._groupSessionId
+                -- Track this sighting to allow upgrading zone when activity becomes more "interesting"
+                self._sessionSighting[normName] = { sessionId = self._groupSessionId, prio = currentPrio, ref = rec.sightings[#rec.sightings] }
+                -- Persist seen/prio in current session
+                local sess = self.db and self.db.global and self.db.global.session
+                if sess then
+                  sess.seen = sess.seen or {}
+                  sess.prio = sess.prio or {}
+                  sess.seen[normName] = true
+                  sess.prio[normName] = currentPrio
+                end
+              elseif rec and self._seenThisGroup[normName] == self._groupSessionId then
+                -- Already recorded this session; if activity priority increased, lock to the first higher-priority zone
+                local s = self._sessionSighting[normName]
+                if s and s.sessionId == self._groupSessionId and type(s.prio) == "number" and currentPrio > s.prio and type(s.ref) == "table" then
+                  s.ref.zone = currentZone
+                  -- If this was also the first-ever sighting, update that display too
+                  if rec.firstSighting and tonumber(rec.firstSighting.ts) == tonumber(s.ref.ts) then
+                    rec.firstSighting.zone = currentZone
+                  end
+                  s.prio = currentPrio
+                  local sess = self.db and self.db.global and self.db.global.session
+                  if sess and sess.prio then
+                    sess.prio[normName] = currentPrio
+                  end
+                end
               end
             end
           end
@@ -460,6 +566,11 @@ function PermanentRecord.Core:ProcessGroupRoster(onJoin)
       end
 
       self._lastRoster = currentRoster
+      -- Persist roster at end of processing
+      local sess = self.db and self.db.global and self.db.global.session
+      if sess and sess.active then
+        sess.roster = currentRoster
+      end
     end
   until not self._rosterPending
   self._rosterProcessing = false
@@ -470,6 +581,14 @@ function PermanentRecord.Core:OnGroupLeft()
   self._inGroup = false
   self._seenThisGroup = {}
   self._lastRoster = {}
+  self._sessionSighting = {}
+  if self.db and self.db.global then
+    local sess = self.db.global.session
+    if type(sess) == "table" then
+      sess.active = false
+      sess.roster = {}
+    end
+  end
 end
 
 ---------------------------------------------------------------------------------------------
