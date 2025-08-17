@@ -1,4 +1,4 @@
-local AddonName, _ = ...
+local AddonName, PR = ...
 PermanentRecord.Core = {}
 
 -- Unified time helper
@@ -60,6 +60,152 @@ local function tableKeysSorted(t)
   for k in pairs(t or {}) do table.insert(out, k) end
   table.sort(out)
   return out
+end
+
+---------------------------------------------------------------------------------------------
+--  MODEL CLASSES (inlined)
+---------------------------------------------------------------------------------------------
+
+---@class Comment
+---@field datetime string
+---@field zone string
+---@field text string
+---@field author string
+local Comment = {}
+Comment.__index = Comment
+
+function Comment:New(datetime, zone, text, author)
+  local raw = { datetime = datetime, zone = zone, text = text, author = author }
+  local c = PermanentRecord and PermanentRecord.Core and PermanentRecord.Core.SanitizeComment and PermanentRecord.Core:SanitizeComment(raw) or raw
+  return setmetatable(c, Comment)
+end
+
+---@class Guild
+---@field guildId string
+---@field createdAt number
+---@field comments Comment[]
+local Guild = {}
+Guild.__index = Guild
+
+function Guild:New(guildId)
+  ---@type Guild
+  local self = setmetatable({}, Guild)
+  self.guildId = tostring(guildId or "")
+  self.createdAt = now()
+  self.comments = {}
+  return self
+end
+
+function Guild:AddComment(comment)
+  local c = PermanentRecord and PermanentRecord.Core and PermanentRecord.Core.SanitizeComment and PermanentRecord.Core:SanitizeComment(comment) or nil
+  if not c then return end
+  table.insert(self.comments, c)
+end
+
+---@class Player
+---@field playerId string
+---@field createdAt number
+---@field comments Comment[]
+---@field fingerprint string
+---@field sightings table[]
+---@field firstSighting table|nil
+---@field className string|nil
+---@field classFile string|nil
+---@field specId number|nil
+---@field specName string|nil
+---@field role string|nil
+local Player = {}
+Player.__index = Player
+
+function Player:New(playerId, fingerprint)
+  if not playerId or playerId == "" then
+    PermanentRecord:Error("Player ID cannot be empty")
+  end
+  ---@type Player
+  local self = setmetatable({}, Player)
+  self.playerId = tostring(playerId or "")
+  self.createdAt = now()
+  self.comments = {}
+  self.fingerprint = tostring(fingerprint or "")
+  self.sightings = {}
+  self.firstSighting = nil
+  self.className = nil
+  self.classFile = nil
+  self.specId = nil
+  self.specName = nil
+  self.role = nil
+  return self
+end
+
+function Player:AddComment(comment)
+  local c = PermanentRecord and PermanentRecord.Core and PermanentRecord.Core.SanitizeComment and PermanentRecord.Core:SanitizeComment(comment) or nil
+  if not c then return end
+  table.insert(self.comments, c)
+end
+
+function Player:UpdateFromUnit(unit)
+  if not unit or unit == "" then return end
+  if UnitClass then
+    local localized, classFile = UnitClass(unit)
+    if localized and classFile then
+      self.className = localized
+      self.classFile = classFile
+    end
+  end
+  if UnitGroupRolesAssigned then
+    local role = UnitGroupRolesAssigned(unit)
+    if role and role ~= "NONE" then
+      self.role = role
+    end
+  end
+  local specId
+  if UnitIsUnit and UnitIsUnit(unit, "player") and GetSpecialization and GetSpecializationInfo then
+    local idx = GetSpecialization()
+    if idx then
+      specId, self.specName = GetSpecializationInfo(idx)
+    end
+  elseif GetInspectSpecialization and GetSpecializationInfoByID then
+    local sid = GetInspectSpecialization(unit)
+    if sid and sid > 0 then
+      local _, name, _, _, role = GetSpecializationInfoByID(sid)
+      specId = sid
+      self.specName = name
+      if role and role ~= "" then
+        self.role = role
+      end
+    end
+  end
+  if specId and specId > 0 then
+    self.specId = specId
+  end
+end
+
+function Player:AddSighting(ts, zone, guild, seenBy)
+  ts = tonumber(ts) or now()
+  zone = tostring(zone or "")
+  guild = tostring(guild or "")
+  local me = tostring(seenBy or (GetUnitName and GetUnitName("player", true)) or "")
+  if not self.firstSighting then
+    self.firstSighting = { ts = ts, zone = zone, guild = guild, seenBy = me }
+  end
+  table.insert(self.sightings, { ts = ts, zone = zone, guild = guild, seenBy = me })
+  local max = 5
+  local n = #self.sightings
+  if n > max then
+    for _ = 1, (n - max) do
+      table.remove(self.sightings, 1)
+    end
+  end
+end
+
+-- Export classes to the shared addon table and global addon object
+PR.Player = Player
+PR.Guild = Guild
+PR.Comment = Comment
+if PermanentRecord then
+  PermanentRecord.Player = Player
+  PermanentRecord.Guild = Guild
+  PermanentRecord.Comment = Comment
 end
 
 -- Rehydrate helpers: SavedVariables strip metatables; restore class methods and defaults
@@ -156,6 +302,24 @@ function PermanentRecord.Core:FormatTimeAgo(ts)
   end
 end
 
+-- Normalize a comment table: trim strings and fill defaults
+function PermanentRecord.Core:SanitizeComment(comment)
+  if type(comment) ~= "table" then return nil end
+  local trim = _G and _G.strtrim or function(s)
+    s = tostring(s or ""); s = s:gsub("^%s+", ""):gsub("%s+$", ""); return s
+  end
+  local author = comment.author
+  if not author or author == "" then
+    author = (GetUnitName and GetUnitName("player", true)) or (UnitName and UnitName("player")) or ""
+  end
+  return {
+    datetime = trim(tostring(comment.datetime or "")),
+    zone = trim(tostring(comment.zone or "")),
+    text = trim(tostring(comment.text or "")),
+    author = trim(tostring(author or "")),
+  }
+end
+
 ---@class PermanentRecord.Core
 ---@field db AceDB-3.0
 ---@field debug boolean
@@ -163,7 +327,15 @@ end
 function PermanentRecord.Core:New(db, debug)
   self.db = db
   self.debug = debug or false
-  self.db.global.addonVersion = C_AddOns.GetAddOnMetadata(AddonName, 'Version')
+  local ver = (C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata(AddonName, 'Version')) or nil
+  if not ver and type(_G) == 'table' then
+    local getMeta = rawget(_G, 'GetAddOnMetadata')
+    if type(getMeta) == 'function' then
+      ver = getMeta(AddonName, 'Version')
+    end
+  end
+  ver = ver or 'dev'
+  self.db.global.addonVersion = ver
   if not self.db.global.dbVersion then
     self.db.global.dbVersion = 1 -- Initial version
   end

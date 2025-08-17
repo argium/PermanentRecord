@@ -16,6 +16,16 @@ local function AddGroupedLine(tooltip, label, sighting)
   tooltip:AddLine("|cff875cff" .. label .. ": " .. ago .. suffix)
 end
 
+local function FormatSightingLine(label, s)
+  if type(s) ~= 'table' then return nil end
+  local ago = s.ts and PermanentRecord.Core:FormatTimeAgo(s.ts) or "?"
+  local zone = (s.zone and s.zone ~= "" and s.zone) or "?"
+  local guild = (s.guild and s.guild ~= "" and (" <" .. s.guild .. ">")) or ""
+  local by = (s.seenBy and s.seenBy ~= "" and (" by " .. (s.seenBy:match("^([^%-]+)") or s.seenBy))) or ""
+  local labelCode = label and ("|cffc8b2ff" .. label .. "|r ") or ""
+  return string.format("%s%s %s%s%s", labelCode, ago, zone, guild, by)
+end
+
 local function UpdateTooltip(tooltip, data)
   if not tooltip then return end
   if not PermanentRecord.core then return end
@@ -159,7 +169,7 @@ local function ShowAddCommentDialog(playerName, unit, editIndex)
         else
           -- Create new comment
           local ts = GetServerTime and GetServerTime() or time()
-          local dt = date("%Y-%m-%d %H:%M", ts)
+          local dt = tostring(date("%Y-%m-%d %H:%M", ts))
           local zone = (GetRealZoneText and GetRealZoneText()) or ""
           local author = (GetUnitName and GetUnitName("player", true)) or (UnitName and UnitName("player")) or ""
           local comment = PermanentRecord.Comment:New(dt, zone, text, author)
@@ -291,18 +301,10 @@ local function CreateViewCommentsFrame()
       y = y - fs:GetStringHeight() - 4
     end
 
-    local function fmtSighting(label, s)
-      local ago = s.ts and PermanentRecord.Core:FormatTimeAgo(s.ts) or "?"
-      local zone = (s.zone and s.zone ~= "" and s.zone) or "?"
-      local guild = (s.guild and s.guild ~= "" and (" <" .. s.guild .. ">")) or ""
-      local by = (s.seenBy and s.seenBy ~= "" and (" by " .. (s.seenBy:match("^([^%-]+)") or s.seenBy))) or ""
-      return string.format("|cffc8b2ff%s|r %s %s%s%s", label, ago, zone, guild, by)
-    end
-
     local addedAnySighting = false
     if rec.firstSighting and rec.firstSighting.ts then
       addSighting("|cffa992ffSightings|r")
-      addSighting(fmtSighting("First", rec.firstSighting))
+      addSighting(FormatSightingLine("First", rec.firstSighting))
       addedAnySighting = true
     end
     local firstTs = rec.firstSighting and rec.firstSighting.ts or nil
@@ -314,7 +316,7 @@ local function CreateViewCommentsFrame()
             addSighting("|cffa992ffSightings|r")
             addedAnySighting = true
           end
-          addSighting(fmtSighting("Seen", s))
+          addSighting(FormatSightingLine("Seen", s))
         end
       end
     end
@@ -695,11 +697,7 @@ local function CreateBrowserFrame()
       for i = #rec.sightings, 1, -1 do
         local s = rec.sightings[i]
         if type(s) == "table" then
-          local ago = s.ts and PermanentRecord.Core:FormatTimeAgo(s.ts) or "?"
-          local zone = (s.zone and s.zone ~= "" and s.zone) or "?"
-          local guild = (s.guild and s.guild ~= "" and (" <" .. s.guild .. ">")) or ""
-          local by = (s.seenBy and s.seenBy ~= "" and (" by " .. (s.seenBy:match("^([^%-]+)") or s.seenBy))) or ""
-          addLine(string.format("Seen %s %s%s%s", ago, zone, guild, by))
+          addLine(FormatSightingLine("Seen", s))
         end
       end
     end

@@ -21,7 +21,7 @@ function PermanentRecord:DebugLog(...)
 end
 
 function PermanentRecord:Error(...)
-  print("|cffdd4444[" .. AddonName .. "]", ...)
+  print("|cffdd4444[" .. AddonName .. "]|r", ...)
 end
 
 function PermanentRecord:OnInitialize()

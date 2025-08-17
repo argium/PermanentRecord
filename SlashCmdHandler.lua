@@ -122,7 +122,7 @@ function PermanentRecord:SlashGet(args)
     print("  Type:", result.playerId and "Player" or "Guild")
     print("  ID:", result.playerId or result.guildId)
     if result.createdAt then
-      print("  Created:", PermanentRecord.core:FormatDate(result.createdAt))
+      print("  Created:", PermanentRecord.Core:FormatDate(result.createdAt))
     end
     if result.playerId and result.fingerprint and result.fingerprint ~= "" then
       print("  Fingerprint:", result.fingerprint)
@@ -141,9 +141,9 @@ function PermanentRecord:SlashGet(args)
       print("  Sightings:", #sightings)
       for i, s in ipairs(sightings) do
         if type(s) == "table" then
-          print("    -", PermanentRecord.core:FormatDate(s.ts), s.zone or "")
+          print("    -", PermanentRecord.Core:FormatDate(s.ts), s.zone or "")
         else
-          print("    -", PermanentRecord.core:FormatDate(s))
+          print("    -", PermanentRecord.Core:FormatDate(s))
         end
       end
     end
