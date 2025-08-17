@@ -88,6 +88,13 @@ function PermanentRecord:HandleSlashCmd(input)
     local gc = CountMapKeys(self.db.profile.guilds)
     print("  Totals:", "players="..pc..", guilds="..gc)
     return
+  elseif command == "ui" or command == "browser" then
+    if PermanentRecord and PermanentRecord.ShowBrowser then
+      PermanentRecord.ShowBrowser()
+    else
+      print("UI module not loaded.")
+    end
+    return
   end
 
   print("Available commands:")
@@ -96,6 +103,7 @@ function PermanentRecord:HandleSlashCmd(input)
   print("  pr remove <player|guild> <name> - Remove a record")
   print("  pr list <player|guild> - List all names")
   print("  pr clear <player|guild> - Clear all records of that type")
+  print("  pr ui - Open the PermanentRecord browser UI")
   print("  pr help - Show this help message")
 end
 
